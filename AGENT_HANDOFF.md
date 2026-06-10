@@ -28,6 +28,18 @@ and always posts the fast scenario model key to the backend.
 Do not commit local license files such as `gurobi.lic`; `.gitignore` excludes
 license files, logs, Python caches, and model run outputs.
 
+## Gurobi License
+
+The app detects Gurobi as available only when both `gurobipy` is installed and a
+license file can be found. License discovery checks:
+
+1. `GRB_LICENSE_FILE` if it points to an existing file.
+2. `gurobi.lic` in the app working directory.
+3. Any `*gurobi*.lic` or `*.lic` file in the app working directory.
+
+For local testing, place `gurobi.lic` beside `csv_source_editor_app.py` or set
+`GRB_LICENSE_FILE` before launching the app. Do not commit the license.
+
 ## Running The App
 
 From the project root:

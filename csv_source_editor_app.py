@@ -4696,6 +4696,14 @@ def power_model_config(value: str) -> dict[str, Any]:
 
 
 def find_gurobi_license() -> Path | None:
+    env_license = os.environ.get("GRB_LICENSE_FILE", "").strip()
+    if env_license:
+        for raw_path in env_license.split(os.pathsep):
+            if not raw_path.strip():
+                continue
+            candidate = Path(raw_path).expanduser()
+            if candidate.is_file():
+                return candidate.resolve()
     candidates = [
         Path.cwd() / "gurobi.lic",
         *sorted(Path.cwd().glob("*gurobi*.lic")),
