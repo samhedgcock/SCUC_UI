@@ -113,51 +113,8 @@ BUS_LAYOUT = {
     "IB OPF": {"x": 920, "y": 450, "type": "load"},
 }
 
-DEFAULT_POWER_MODEL = "network_from_png_v1"
+DEFAULT_POWER_MODEL = "network_from_png_gurobi_fast_custom_scenario"
 POWER_MODELS: dict[str, dict[str, Any]] = {
-    "network_from_png_v1": {
-        "label": "network_from_png_v1",
-        "script": "network_from_png_v1.py",
-        "default_solver": "highs",
-        "uses_horizon": True,
-    },
-    "dispatch_24h_highs_gurobi": {
-        "label": "24h_dispatch_HiGHs_Gurobi.py",
-        "script": "24h_dispatch_HiGHs_Gurobi.py",
-        "default_solver": "gurobi",
-        "uses_horizon": False,
-        "script_command": True,
-        "stderr_to_stdout": True,
-        "supports_nonanticipative_hours": True,
-        "solver_time_limit": 360,
-        "solver_mip_gap": 0.005,
-    },
-    "dispatch_24h_stochastic_highs_gurobi_withreserves": {
-        "label": "24h_stochastic_dispatch_HiGHs_Gurobi_withreserves.py",
-        "script": "24h_stochastic_dispatch_HiGHs_Gurobi_withreserves.py",
-        "default_solver": "gurobi",
-        "uses_horizon": False,
-        "script_command": True,
-        "stderr_to_stdout": True,
-        "supports_nonanticipative_hours": True,
-        "solver_time_limit": 360,
-        "solver_mip_gap": 0.005,
-    },
-    "network_from_png_gurobi_custom_scenario": {
-        "label": "network_from_png_gurobi.py - custom stochastic scenario",
-        "script": "network_from_png_gurobi.py",
-        "command_script": "run_custom_stochastic_scenario.py",
-        "default_solver": "gurobi",
-        "uses_horizon": False,
-        "custom_scenario_command": True,
-        "stderr_to_stdout": True,
-        "supports_nonanticipative_hours": True,
-        "scenario_name": "sol_bess_enabled_nss_disabled_nonanticipative",
-        "sol_bess": "enabled",
-        "nss_bess": "disabled",
-        "solver_time_limit": 360,
-        "solver_mip_gap": 0.005,
-    },
     "network_from_png_gurobi_fast_custom_scenario": {
         "label": "network_from_png_gurobi_fast.py - fast patch scenario",
         "script": "network_from_png_gurobi_fast.py",
@@ -1708,6 +1665,34 @@ RUNNER_HTML = r"""<!doctype html>
       min-height: 28px;
     }
 
+    .fixed-model {
+      display: grid;
+      gap: 4px;
+      padding: 10px;
+      border: 1px solid #cfd9e2;
+      border-radius: 8px;
+      background: #f7fafc;
+    }
+
+    .fixed-model span {
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 750;
+      text-transform: uppercase;
+    }
+
+    .fixed-model strong {
+      color: var(--ink);
+      font-size: 13px;
+      font-weight: 750;
+    }
+
+    .fixed-model small {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.35;
+    }
+
     .run-row {
       display: flex;
       gap: 8px;
@@ -1859,7 +1844,7 @@ RUNNER_HTML = r"""<!doctype html>
     <header class="topbar">
       <div class="brand">
         <h1>PyPSA Model Runner</h1>
-        <div class="subtitle">Model selection and solve controls</div>
+        <div class="subtitle">Fast stochastic scenario solve controls</div>
       </div>
       <nav class="nav-links" aria-label="Application navigation">
         <a class="nav-primary" href="/runner" aria-current="page">Model Runner</a>
@@ -1905,16 +1890,18 @@ RUNNER_HTML = r"""<!doctype html>
 
         <div class="section">
           <h2>Solve Settings</h2>
-          <div class="field">
-            <label for="power-model-select">Power model</label>
-            <select id="power-model-select"></select>
+          <div class="fixed-model">
+            <span>Power model</span>
+            <strong id="power-model-label">network_from_png_gurobi_fast.py</strong>
+            <small id="power-model-note">Runs the fast custom stochastic scenario.</small>
           </div>
+          <select id="power-model-select" hidden aria-hidden="true" style="display:none"></select>
           <div class="field">
             <label for="solver-select">Solver</label>
             <select id="solver-select"></select>
           </div>
           <label class="check-row">
-            <input id="solver-log" type="checkbox" checked>
+            <input id="solver-log" type="checkbox">
             <span>Solver log</span>
           </label>
           <div class="field">
@@ -1983,6 +1970,8 @@ RUNNER_HTML = r"""<!doctype html>
       load: document.getElementById("load-select"),
       solar: document.getElementById("solar-select"),
       powerModel: document.getElementById("power-model-select"),
+      powerModelLabel: document.getElementById("power-model-label"),
+      powerModelNote: document.getElementById("power-model-note"),
       solver: document.getElementById("solver-select"),
       solverLog: document.getElementById("solver-log"),
       horizonHours: document.getElementById("horizon-hours-input"),
@@ -2092,6 +2081,13 @@ RUNNER_HTML = r"""<!doctype html>
         `<option value="${escapeHtml(item.value)}">${escapeHtml(item.label)}</option>`
       )).join("");
       els.powerModel.value = selected;
+      const model = selectedPowerModel();
+      if (els.powerModelLabel) {
+        els.powerModelLabel.textContent = model.label || "network_from_png_gurobi_fast.py";
+      }
+      if (els.powerModelNote) {
+        els.powerModelNote.textContent = "Runs the fast custom stochastic scenario with the matching network_from_png_gurobi base module.";
+      }
       updatePowerModelControls(true);
     }
 
@@ -4596,7 +4592,7 @@ def compatible_run_options(root: Path) -> dict[str, Any]:
     load_options = [item for item in items if is_compatible_load_source(item)]
     solar_options = [item for item in items if is_compatible_solar_source(item)]
     if not load_options:
-        raise AppError("No load profile CSVs contain the columns required by network_from_png_v1.py.")
+        raise AppError("No load profile CSVs contain the columns required by the fast stochastic model.")
     if not solar_options:
         raise AppError("No NSJ SF rating profile CSVs contain MONTH, DAY, PERIOD, and samples 1-5.")
     return {
@@ -5232,7 +5228,6 @@ def build_solve_command(
     unbuffered: bool = False,
 ) -> list[str]:
     model = power_model_config(power_model)
-    script_path = Path(model["script_path"])
     if model.get("custom_scenario_command"):
         command_script_path = Path(model["command_script_path"])
         command = [sys.executable]
@@ -5269,120 +5264,7 @@ def build_solve_command(
             command.extend(["--gurobi-license-file", str(license_path)])
         return command
 
-    if model.get("script_command"):
-        command = [sys.executable]
-        if unbuffered:
-            command.append("-u")
-        command.extend(
-            [
-                "-B",
-                str(script_path),
-                "--data-dir",
-                str(data_dir),
-                "--output-dir",
-                str(outputs_dir),
-                "--solver-name",
-                solver_name,
-                "--solver-time-limit",
-                str(solver_time_limit),
-                "--solver-mip-gap",
-                str(solver_mip_gap),
-            ]
-        )
-        if model.get("supports_nonanticipative_hours", False):
-            command.extend(
-                [
-                    "--generation-nonanticipative-hours",
-                    str(nonanticipative_hours),
-                ]
-            )
-        command.append("--no-solution-netcdf")
-        if solver_log:
-            command.append("--solver-log")
-        license_path = find_gurobi_license()
-        if solver_name == "gurobi" and license_path:
-            command.extend(["--gurobi-license-file", str(license_path)])
-        return command
-
-    extra_export_code = f"""
-import pandas as pd
-snapshots = m.default_reporting_snapshots()
-gen_rows = []
-for component_name, generator in n.generators.iterrows():
-    carrier = str(generator.get('carrier', ''))
-    load_shedding = generator.get('load_shedding', False)
-    is_load_shedding = bool(load_shedding) if pd.notna(load_shedding) else False
-    if carrier == 'unserved_energy' or is_load_shedding:
-        continue
-    base_name = str(generator.get('base_name', component_name))
-    sample = str(generator.get('sample', ''))
-    bus_component = generator.get('bus', '')
-    bus = str(n.buses.loc[bus_component].get('base_name', bus_component)) if bus_component in n.buses.index else str(bus_component)
-    if component_name not in n.generators_t.p.columns:
-        continue
-    for snapshot, value in n.generators_t.p[component_name].reindex(snapshots).items():
-        gen_rows.append({{
-            'DATETIME': snapshot,
-            'sample': sample,
-            'generator': base_name,
-            'component': component_name,
-            'bus': bus,
-            'carrier': carrier,
-            'p_mw': value,
-        }})
-pd.DataFrame(gen_rows).to_csv(out/{GENERATOR_OUTPUT!r}, index=False)
-line_rows = []
-p0 = getattr(n, 'lines_t').p0
-p1 = getattr(n, 'lines_t').p1 if hasattr(getattr(n, 'lines_t'), 'p1') else None
-for component_name, line in n.lines.iterrows():
-    base_name = str(line.get('base_name', component_name))
-    sample = str(line.get('sample', ''))
-    bus0_component = line.get('bus0', '')
-    bus1_component = line.get('bus1', '')
-    bus0 = str(n.buses.loc[bus0_component].get('base_name', bus0_component)) if bus0_component in n.buses.index else str(bus0_component)
-    bus1 = str(n.buses.loc[bus1_component].get('base_name', bus1_component)) if bus1_component in n.buses.index else str(bus1_component)
-    limit = float(line.get('s_nom', line.get('max_flow_mw', 0.0)) or 0.0)
-    if component_name not in p0.columns:
-        continue
-    series0 = p0[component_name].reindex(snapshots)
-    series1 = p1[component_name].reindex(snapshots) if p1 is not None and component_name in p1.columns else None
-    for snapshot, value0 in series0.items():
-        p0_mw = float(value0) if pd.notna(value0) else 0.0
-        p1_mw = float(series1.loc[snapshot]) if series1 is not None and pd.notna(series1.loc[snapshot]) else ''
-        line_rows.append({{
-            'DATETIME': snapshot,
-            'sample': sample,
-            'line': base_name,
-            'component': component_name,
-            'bus0': bus0,
-            'bus1': bus1,
-            'p0_mw': p0_mw,
-            'p1_mw': p1_mw,
-            'limit_mw': limit,
-            'loading_pct': abs(p0_mw) / limit * 100.0 if limit else '',
-        }})
-pd.DataFrame(line_rows).to_csv(out/{LINE_FLOW_OUTPUT!r}, index=False)
-"""
-    python_code = (
-        "from pathlib import Path; "
-        "import network_from_png_v1 as m; "
-        f"data_dir=Path({str(data_dir)!r}); "
-        f"out=Path({str(outputs_dir)!r}); "
-        f"m.SIMULATION_DAYS={horizon_hours / 24.0!r}; "
-        f"m.SIMULATION_LOOKAHEAD_DAYS={lookahead_hours / 24.0!r}; "
-        "out.mkdir(parents=True, exist_ok=True); "
-        "print('stage=building_stochastic_scenario', flush=True); "
-        f"n,r=m.solve_base_stochastic_dispatch_scenario(data_dir=data_dir, solver_name={solver_name!r}, solver_log={solver_log!r}, nonanticipative_hours={nonanticipative_hours!r}); "
-        "print('stage=exporting_outputs', flush=True); "
-        f"m.export_thermal_generation_by_interval(n,out/{THERMAL_OUTPUT!r}); "
-        f"m.export_unserved_energy_by_interval(n,out/{UNSERVED_OUTPUT!r}); "
-        f"m.export_load_by_bus_by_interval(n,out/{LOAD_OUTPUT!r}); "
-        f"exec({extra_export_code!r}); "
-        "print('stage=complete', flush=True); "
-        "print('result=',r, flush=True); "
-        "print('output_dir=',out.resolve(), flush=True)"
-    )
-    return [sys.executable, "-u", "-c", python_code] if unbuffered else [sys.executable, "-c", python_code]
+    raise AppError("This branch only supports the fast custom stochastic scenario.")
 
 
 def run_network_script(

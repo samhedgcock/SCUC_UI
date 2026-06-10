@@ -15,12 +15,12 @@ than the PLEXOS formulation of the same model:
    inequalities, which are equivalent at the optimum because shortage carries
    a very large penalty (VoRS).
 
-2. Inertia condition: the requirement is 174 MWs if at least one LM6000 is
-   on and 80 MWs otherwise, i.e. ``80 + 94 * any_lm6000_on``. The original
-   module used two extra binaries per snapshot per sample (``both_on`` and
-   ``any_on``); ``both_on`` is unused by the requirement, and ``any_on`` does
-   not need to be binary: it is bounded below by both LM6000 statuses and the
-   objective pushes it down to their maximum, which is integral.
+2. Inertia condition: the three business cases are kept explicit:
+   no LM6000 on, exactly one LM6000 on, and both LM6000s on. The condition
+   values are read from ``network.inertia_reserve_conditions`` so the
+   both-on requirement can differ from the one-on requirement. The condition
+   helpers are continuous in the fast path; on the integer trading-day window
+   they exactly follow the binary LM6000 statuses.
 
 3. Raise-reserve-solar / regulation-lower equalities are replaced by ``>=``
    constraints plus a tiny tie-break cost on reserve provision so that the
@@ -40,6 +40,7 @@ outputs keep working.
 from __future__ import annotations
 
 import pandas as pd
+import math
 
 from network_from_png_gurobi import *  # noqa: F401,F403 - re-export the full model API
 import network_from_png_gurobi as _base
@@ -134,7 +135,7 @@ def _apply_symmetry_breaking_perturbation(network) -> None:
 
 
 def _inertia_penalty(network, snapshots: pd.DatetimeIndex, sample: str):
-    """174 MWs requirement if any LM6000 is on, else 80 MWs (no binaries)."""
+    """Business-case inertia requirement with no extra binary helpers."""
     model = network.model
     gen_status = model.variables["Generator-status"]
     sample_weight = network.stochastic_sample_weights[sample]
@@ -143,6 +144,12 @@ def _inertia_penalty(network, snapshots: pd.DatetimeIndex, sample: str):
     status_1 = gen_status.sel(name=lm6000_01, snapshot=snapshots)
     status_2 = gen_status.sel(name=lm6000_02, snapshot=snapshots)
 
+    both_on = model.add_variables(
+        lower=0.0,
+        upper=1.0,
+        coords={"snapshot": snapshots},
+        name=f"Inertia-both-lm6000-on-{sample}",
+    )
     any_on = model.add_variables(
         lower=0.0,
         upper=1.0,
@@ -154,8 +161,21 @@ def _inertia_penalty(network, snapshots: pd.DatetimeIndex, sample: str):
         coords={"snapshot": snapshots},
         name=f"Inertia-shortage-{sample}",
     )
+    model.add_constraints(
+        both_on <= status_1,
+        name=f"Inertia-both-upper-lm6000-01-{sample}",
+    )
+    model.add_constraints(
+        both_on <= status_2,
+        name=f"Inertia-both-upper-lm6000-02-{sample}",
+    )
+    model.add_constraints(
+        both_on >= status_1 + status_2 - 1,
+        name=f"Inertia-both-lower-{sample}",
+    )
     model.add_constraints(any_on >= status_1, name=f"Inertia-any-lower-lm6000-01-{sample}")
     model.add_constraints(any_on >= status_2, name=f"Inertia-any-lower-lm6000-02-{sample}")
+    model.add_constraints(any_on <= status_1 + status_2, name=f"Inertia-any-upper-{sample}")
 
     provision_terms = []
     for base_name in GENERATORS_AT_SOLOMON:
@@ -165,39 +185,47 @@ def _inertia_penalty(network, snapshots: pd.DatetimeIndex, sample: str):
             float(inertia_mw_s) * gen_status.sel(name=component, snapshot=snapshots)
         )
 
-    # provision + shortage >= 80 + 94 * any_on
+    requirements = inertia_condition_requirements(network)
+    exactly_one_on = any_on - both_on
+    no_on = 1 - any_on
     model.add_constraints(
-        sum(provision_terms) + shortage - 94.0 * any_on >= 80.0,
+        sum(provision_terms)
+        + shortage
+        >= requirements["no_lm6000_on"] * no_on
+        + requirements["any_lm6000_on"] * exactly_one_on
+        + requirements["both_lm6000_on"] * both_on,
         name=f"Inertia-reserve-requirement-{sample}",
     )
 
     # Integer-rounding (Chvatal-Gomory) strengthening of the inertia
-    # requirement. Unit inertia contributions are Bergen 15.95, LM6000 110,
-    # Titan130 48 MWs. Dividing the requirement row by 15.95 and rounding up
-    # gives, for the 80 MWs case, ceil(80/15.95) = 6 "Bergen-equivalents"
-    # (LM6000 counts ceil(110/15.95) = 7, Titan ceil(48/15.95) = 4) and for
-    # the 174 MWs case ceil(174/15.95) = 11, i.e. RHS = 6 + 5*any_on. This is
-    # exactly the commitment count an integer solution must have, while the
-    # plain LP relaxation only pays for 80/15.95 = 5.02 units - that
-    # difference was the bulk of the MIP gap. The cut assumes zero inertia
-    # shortage, which holds at any optimum because VoRS (100k $/MWs) dwarfs
-    # the cost of committing another unit. It is only valid where the status
-    # variables are integral, so it is restricted to the trading-day window
-    # when the look-ahead is LP-relaxed.
+    # requirement. Divide the requirement row by one Bergen unit of inertia
+    # and round all coefficients up. This adapts to separate no/one/both
+    # LM6000 requirement values while remaining valid on the integer
+    # trading-day window. The cut assumes zero inertia shortage, which holds
+    # at any optimum because VoRS dwarfs the cost of committing another unit.
     cut_snapshots = _integer_commitment_snapshots(network, snapshots)
     if len(cut_snapshots) > 0:
+        bergen_inertia = float(
+            network.generators.at[stochastic_component("Bergen-01", sample), "inertia_mw_s"]
+        )
+
+        def rounded_count(value: float) -> float:
+            return float(math.ceil((float(value) / bergen_inertia) - 1e-9))
+
+        no_count = rounded_count(requirements["no_lm6000_on"])
+        one_count = rounded_count(requirements["any_lm6000_on"])
+        both_count = rounded_count(requirements["both_lm6000_on"])
         count_terms = []
         for base_name in GENERATORS_AT_SOLOMON:
             component = stochastic_component(base_name, sample)
             status = gen_status.sel(name=component, snapshot=cut_snapshots)
-            if base_name.startswith("LM6000"):
-                count_terms.append(7.0 * status)
-            elif base_name.startswith("Titan130"):
-                count_terms.append(4.0 * status)
-            else:
-                count_terms.append(status)
+            inertia_mw_s = float(network.generators.at[component, "inertia_mw_s"])
+            count_terms.append(rounded_count(inertia_mw_s) * status)
         model.add_constraints(
-            sum(count_terms) - 5.0 * any_on.sel(snapshot=cut_snapshots) >= 6.0,
+            sum(count_terms)
+            >= no_count
+            + (one_count - no_count) * any_on.sel(snapshot=cut_snapshots)
+            + (both_count - one_count) * both_on.sel(snapshot=cut_snapshots),
             name=f"Inertia-commitment-count-cut-{sample}",
         )
     return shortage.sum() * (network.inertia_reserve_vors_per_mws * sample_weight)

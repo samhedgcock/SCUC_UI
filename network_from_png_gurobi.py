@@ -979,12 +979,43 @@ def apply_timeslice_values(
     return result
 
 
-def inertia_requirement_mws(lm6000_01_on: bool, lm6000_02_on: bool) -> tuple[str, float]:
+def inertia_condition_requirements(
+    network: pypsa.Network | None = None,
+) -> dict[str, float]:
+    conditions = (
+        getattr(network, "inertia_reserve_conditions", INERTIA_RESERVE_CONDITIONS)
+        if network is not None
+        else INERTIA_RESERVE_CONDITIONS
+    )
+    requirements = {
+        condition["condition"]: float(condition["min_provision_mws"])
+        for condition in conditions
+    }
+    required_conditions = {
+        "both_lm6000_on",
+        "any_lm6000_on",
+        "no_lm6000_on",
+    }
+    missing = sorted(required_conditions - set(requirements))
+    if missing:
+        raise KeyError(f"Missing inertia reserve conditions: {missing}")
+    return requirements
+
+
+def inertia_requirement_mws(
+    lm6000_01_on: bool,
+    lm6000_02_on: bool,
+    network: pypsa.Network | None = None,
+) -> tuple[str, float]:
+    requirements = inertia_condition_requirements(network)
     if lm6000_01_on and lm6000_02_on:
-        return "both_lm6000_on", 174.0
+        condition = "both_lm6000_on"
+        return condition, requirements[condition]
     if lm6000_01_on or lm6000_02_on:
-        return "any_lm6000_on", 174.0
-    return "no_lm6000_on", 80.0
+        condition = "any_lm6000_on"
+        return condition, requirements[condition]
+    condition = "no_lm6000_on"
+    return condition, requirements[condition]
 
 
 def add_inertia_reserve_constraints(
@@ -1052,10 +1083,11 @@ def add_inertia_reserve_constraints(
 
     one_lm6000_on = any_lm6000_on - both_lm6000_on
     no_lm6000_on = 1 - any_lm6000_on
+    requirements = inertia_condition_requirements(network)
     requirement = (
-        174.0 * both_lm6000_on
-        + 174.0 * one_lm6000_on
-        + 80.0 * no_lm6000_on
+        requirements["both_lm6000_on"] * both_lm6000_on
+        + requirements["any_lm6000_on"] * one_lm6000_on
+        + requirements["no_lm6000_on"] * no_lm6000_on
     )
 
     inertia_provision_terms = []
@@ -1536,7 +1568,12 @@ def add_stochastic_inertia_reserve_constraints(
 
     one_on = any_on - both_on
     no_on = 1 - any_on
-    requirement = 174.0 * both_on + 174.0 * one_on + 80.0 * no_on
+    requirements = inertia_condition_requirements(network)
+    requirement = (
+        requirements["both_lm6000_on"] * both_on
+        + requirements["any_lm6000_on"] * one_on
+        + requirements["no_lm6000_on"] * no_on
+    )
     provision_terms = []
     for base_name in GENERATORS_AT_SOLOMON:
         component = stochastic_component(base_name, sample)
@@ -1998,6 +2035,7 @@ def inertia_reserve_to_rows(
         _, requirement = inertia_requirement_mws(
             lm6000_01_status.at[snapshot] >= 0.5,
             lm6000_02_status.at[snapshot] >= 0.5,
+            network,
         )
         shortage_value = max(0.0, float(shortage.at[snapshot]))
         provision = max(0.0, requirement - shortage_value)
@@ -2729,11 +2767,24 @@ def assert_expected_topology(network: pypsa.Network) -> None:
             "North Star Junction SF has non-zero output before commissioning."
         )
 
+    inertia_requirements = inertia_condition_requirements(network)
     expected_inertia_cases = {
-        (True, True): ("both_lm6000_on", 174.0),
-        (True, False): ("any_lm6000_on", 174.0),
-        (False, True): ("any_lm6000_on", 174.0),
-        (False, False): ("no_lm6000_on", 80.0),
+        (True, True): (
+            "both_lm6000_on",
+            inertia_requirements["both_lm6000_on"],
+        ),
+        (True, False): (
+            "any_lm6000_on",
+            inertia_requirements["any_lm6000_on"],
+        ),
+        (False, True): (
+            "any_lm6000_on",
+            inertia_requirements["any_lm6000_on"],
+        ),
+        (False, False): (
+            "no_lm6000_on",
+            inertia_requirements["no_lm6000_on"],
+        ),
     }
     for statuses, expected in expected_inertia_cases.items():
         if inertia_requirement_mws(*statuses) != expected:

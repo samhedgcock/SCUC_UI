@@ -97,7 +97,7 @@ Recommended behavior:
 - Required columns: `DateTime`, `SM FT OPF`, `SM GF`, `SM KV OPF`, `SM NPI`, `SM TLO`, `IB GF`, `IB NPI`, `IB OPF`.
 - `DateTime` must parse as datetime.
 - Load columns must be numeric and non-negative.
-- This file is consumed by `network_from_png_v1.py` as the default load profile.
+- This file is consumed by the active fast stochastic model as the default load profile.
 
 `loads/load_p_set_long.csv`
 
@@ -118,7 +118,7 @@ Recommended behavior:
 `renewables/nsj_sfx_v1_5_bands.csv`
 
 - Required columns: `MONTH`, `DAY`, `PERIOD`, sample columns `1` through `5`.
-- This file is consumed by `network_from_png_v1.py` as the default NSJ solar farm profile.
+- This file is consumed by the active fast stochastic model as the default NSJ solar farm profile.
 
 Validation:
 
@@ -295,7 +295,7 @@ Saved:
 - Save blocks invalid required schemas.
 - Manifest row and column counts update after successful save.
 - External file changes are detected before overwrite.
-- Default files used by `network_from_png_v1.py` are clearly marked:
+- Default files used by the active fast stochastic model are clearly marked:
   - `loads/load_p_set.csv`
   - `renewables/nsj_sfx_v1_5_bands.csv`
 
@@ -305,4 +305,4 @@ Saved:
 - Scenario branch copies of datasets.
 - Regenerate transformed CSVs from raw inputs.
 - Inline charts for time series files.
-- Integration button to run `network_from_png_v1.py` validation after saving.
+- Integration button to run active fast stochastic model validation after saving.
