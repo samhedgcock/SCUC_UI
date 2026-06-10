@@ -67,6 +67,7 @@ python -B run_custom_stochastic_scenario_fast.py `
   --sol-bess enabled `
   --nss-bess disabled `
   --nonanticipative-hours 20 `
+  --random-seed 20241028 `
   --solver-name gurobi `
   --solver-time-limit 360 `
   --solver-mip-gap 0.005 `
@@ -77,6 +78,7 @@ The UI adds:
 
 - `--data-dir <model_runs/run_id/data_sources>`
 - `--output-dir <model_runs/run_id/pypsa_outputs_base_stochastic_v1>`
+- `--random-seed <seed from the Model Runner page>`
 - `--gurobi-license-file <path>` when a local license is found
 - `--solver-log` only when the user enables the solver log checkbox
 
@@ -91,6 +93,7 @@ The visible runner controls are:
 - Reporting horizon hours
 - Lookahead hours
 - Generation non-anticipativity hours
+- Random seed
 - Solver time limit seconds
 - Solver MIP gap
 - Run/cancel controls
@@ -113,6 +116,7 @@ POWER_MODELS = {
         "nss_bess": "disabled",
         "solver_time_limit": 360,
         "solver_mip_gap": 0.005,
+        "random_seed": 20241028,
     }
 }
 ```

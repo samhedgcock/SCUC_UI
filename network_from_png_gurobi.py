@@ -632,6 +632,7 @@ def apply_snapshot_weightings(network: pypsa.Network) -> None:
 
 
 def attach_default_simulation_settings(network: pypsa.Network) -> None:
+    network.random_seed = RANDOM_SEED
     network.simulation_start = SIMULATION_START
     network.simulation_days = SIMULATION_DAYS
     network.simulation_step_days = SIMULATION_STEP_DAYS
@@ -655,7 +656,9 @@ def stochastic_component(base_name: str, sample: str) -> str:
     return f"{base_name}__s{sample}"
 
 
-def set_random_seed(seed: int = RANDOM_SEED) -> None:
+def set_random_seed(seed: int | None = None) -> None:
+    if seed is None:
+        seed = RANDOM_SEED
     random.seed(seed)
     np.random.seed(seed)
 
@@ -2437,6 +2440,7 @@ def storage_property_summary(network: pypsa.Network) -> pd.DataFrame:
 def simulation_settings_summary(network: pypsa.Network) -> pd.DataFrame:
     rows = [
         ("horizon_begins", network.simulation_start),
+        ("random_seed", getattr(network, "random_seed", RANDOM_SEED)),
         ("simulation_days", network.simulation_days),
         ("step_days", network.simulation_step_days),
         ("additional_lookahead_days", network.simulation_lookahead_days),

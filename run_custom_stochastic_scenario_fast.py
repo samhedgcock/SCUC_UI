@@ -65,6 +65,12 @@ def parse_args() -> argparse.Namespace:
         help="Hours to tie thermal generation and battery decisions across samples.",
     )
     parser.add_argument(
+        "--random-seed",
+        type=int,
+        default=model.RANDOM_SEED,
+        help="Random seed passed to Python, NumPy, and solver options.",
+    )
+    parser.add_argument(
         "--sol-bess",
         type=enabled_choice,
         default=model.SOL_BESS_PROPERTIES["enabled"],
@@ -134,8 +140,16 @@ def apply_bess_settings(sol_bess_enabled: bool, nss_bess_enabled: bool) -> None:
     model.NSS_BESS_PROPERTIES["enabled"] = nss_bess_enabled
 
 
+def apply_random_seed(seed: int) -> None:
+    model.RANDOM_SEED = seed
+    base_model = getattr(model, "_base", None)
+    if base_model is not None:
+        base_model.RANDOM_SEED = seed
+
+
 def build_scenario(args: argparse.Namespace):
     apply_bess_settings(args.sol_bess, args.nss_bess)
+    apply_random_seed(args.random_seed)
     network = model.build_base_stochastic_dispatch_scenario(
         data_dir=Path(args.data_dir),
         nsj_sf_year=args.nsj_sf_year,
@@ -149,6 +163,7 @@ def build_scenario(args: argparse.Namespace):
         f"{args.nonanticipative_hours:g}-hour non-anticipativity."
     )
     network.solver_name = model.normalize_solver_name(args.solver_name)
+    network.random_seed = args.random_seed
     return network
 
 
@@ -221,6 +236,7 @@ def main() -> int:
         print(f"  solver time limit: {args.solver_time_limit:g} seconds")
     if args.solver_mip_gap is not None:
         print(f"  solver MIP gap: {args.solver_mip_gap:g}")
+    print(f"  random seed: {args.random_seed}")
     if args.solver_threads is not None:
         print(f"  solver threads: {args.solver_threads}")
     if solver_name == "gurobi":

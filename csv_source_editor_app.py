@@ -130,6 +130,7 @@ POWER_MODELS: dict[str, dict[str, Any]] = {
         "nss_bess": "disabled",
         "solver_time_limit": 360,
         "solver_mip_gap": 0.005,
+        "random_seed": 20241028,
     },
 }
 
@@ -1917,6 +1918,10 @@ RUNNER_HTML = r"""<!doctype html>
             <input id="nonanticipative-hours-input" type="number" min="0" max="8760" step="0.5" value="20">
           </div>
           <div class="field">
+            <label for="random-seed-input">Random seed</label>
+            <input id="random-seed-input" type="number" min="0" max="2000000000" step="1" value="20241028">
+          </div>
+          <div class="field">
             <label for="solver-time-limit-input">Solver time limit seconds</label>
             <input id="solver-time-limit-input" type="number" min="1" step="1" value="360">
           </div>
@@ -1977,6 +1982,7 @@ RUNNER_HTML = r"""<!doctype html>
       horizonHours: document.getElementById("horizon-hours-input"),
       lookaheadHours: document.getElementById("lookahead-hours-input"),
       nonanticipativeHours: document.getElementById("nonanticipative-hours-input"),
+      randomSeed: document.getElementById("random-seed-input"),
       solverTimeLimit: document.getElementById("solver-time-limit-input"),
       solverMipGap: document.getElementById("solver-mip-gap-input"),
       run: document.getElementById("run-btn"),
@@ -1998,6 +2004,7 @@ RUNNER_HTML = r"""<!doctype html>
         horizon_hours: Number(els.horizonHours.value || 24),
         lookahead_hours: Number(els.lookaheadHours.value || 24),
         nonanticipative_hours: Number(els.nonanticipativeHours.value || 20),
+        random_seed: Number(els.randomSeed.value || 20241028),
         solver_time_limit: Number(els.solverTimeLimit.value || 360),
         solver_mip_gap: Number(els.solverMipGap.value || 0.005)
       };
@@ -2005,16 +2012,18 @@ RUNNER_HTML = r"""<!doctype html>
       return settings;
     }
 
-    function restoreRunnerWindowSettings(defaultHorizon, defaultLookahead, defaultNonanticipative) {
+    function restoreRunnerWindowSettings(defaultHorizon, defaultLookahead, defaultNonanticipative, defaultRandomSeed) {
       let settings = {};
       try {
         settings = JSON.parse(localStorage.getItem(runnerWindowSettingsKey) || "{}") || {};
       } catch (_error) {
         settings = {};
       }
+      defaultRandomSeed = Number.isInteger(Number(defaultRandomSeed)) ? Number(defaultRandomSeed) : 20241028;
       els.horizonHours.value = Number.isFinite(Number(settings.horizon_hours)) ? settings.horizon_hours : defaultHorizon;
       els.lookaheadHours.value = Number.isFinite(Number(settings.lookahead_hours)) ? settings.lookahead_hours : defaultLookahead;
       els.nonanticipativeHours.value = Number.isFinite(Number(settings.nonanticipative_hours)) ? settings.nonanticipative_hours : defaultNonanticipative;
+      els.randomSeed.value = Number.isInteger(Number(settings.random_seed)) ? settings.random_seed : defaultRandomSeed;
       els.solverTimeLimit.value = Number.isFinite(Number(settings.solver_time_limit)) ? settings.solver_time_limit : 360;
       els.solverMipGap.value = Number.isFinite(Number(settings.solver_mip_gap)) ? settings.solver_mip_gap : 0.005;
       saveRunnerWindowSettings();
@@ -2113,9 +2122,9 @@ RUNNER_HTML = r"""<!doctype html>
         els.solver.value = model.default_solver;
       }
       if (resetSolver) {
+        els.randomSeed.value = model.random_seed ?? 20241028;
         els.solverTimeLimit.value = model.solver_time_limit ?? 360;
         els.solverMipGap.value = model.solver_mip_gap ?? 0.005;
-        saveRunnerWindowSettings();
       }
     }
 
@@ -2129,7 +2138,12 @@ RUNNER_HTML = r"""<!doctype html>
       renderOptions(els.solar, data.solar_options, data.default_solar);
       renderSolverOptions(data.solver_options, data.default_solver);
       renderPowerModelOptions(data.power_model_options, data.default_power_model);
-      restoreRunnerWindowSettings(data.default_horizon_hours, data.default_lookahead_hours, data.default_nonanticipative_hours);
+      restoreRunnerWindowSettings(
+        data.default_horizon_hours,
+        data.default_lookahead_hours,
+        data.default_nonanticipative_hours,
+        data.default_random_seed
+      );
       setStatus("Ready", "ok");
     }
 
@@ -2158,6 +2172,7 @@ RUNNER_HTML = r"""<!doctype html>
             horizon_hours: Number(els.horizonHours.value),
             lookahead_hours: Number(els.lookaheadHours.value),
             nonanticipative_hours: Number(els.nonanticipativeHours.value),
+            random_seed: Number(els.randomSeed.value),
             solver_time_limit: Number(els.solverTimeLimit.value),
             solver_mip_gap: Number(els.solverMipGap.value)
           })
@@ -2301,11 +2316,13 @@ RUNNER_HTML = r"""<!doctype html>
     els.horizonHours.addEventListener("input", saveRunnerWindowSettings);
     els.lookaheadHours.addEventListener("input", saveRunnerWindowSettings);
     els.nonanticipativeHours.addEventListener("input", saveRunnerWindowSettings);
+    els.randomSeed.addEventListener("input", saveRunnerWindowSettings);
     els.solverTimeLimit.addEventListener("input", saveRunnerWindowSettings);
     els.solverMipGap.addEventListener("input", saveRunnerWindowSettings);
     els.horizonHours.addEventListener("change", saveRunnerWindowSettings);
     els.lookaheadHours.addEventListener("change", saveRunnerWindowSettings);
     els.nonanticipativeHours.addEventListener("change", saveRunnerWindowSettings);
+    els.randomSeed.addEventListener("change", saveRunnerWindowSettings);
     els.solverTimeLimit.addEventListener("change", saveRunnerWindowSettings);
     els.solverMipGap.addEventListener("change", saveRunnerWindowSettings);
     els.run.addEventListener("click", runModel);
@@ -4665,6 +4682,7 @@ def power_model_options() -> list[dict[str, Any]]:
                 "uses_horizon": bool(model.get("uses_horizon", False)),
                 "solver_time_limit": model.get("solver_time_limit", 360),
                 "solver_mip_gap": model.get("solver_mip_gap", 0.005),
+                "random_seed": model.get("random_seed", 20241028),
             }
         )
     return options
@@ -5118,6 +5136,18 @@ def parse_nonnegative_float(value: Any, label: str) -> float:
     return parsed
 
 
+def parse_nonnegative_int(value: Any, label: str) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        raise AppError(f"{label} must be a whole number.")
+    if str(value).strip() not in {str(parsed), f"{parsed}.0"}:
+        raise AppError(f"{label} must be a whole number.")
+    if parsed < 0:
+        raise AppError(f"{label} must be zero or greater.")
+    return parsed
+
+
 def prepare_model_run(
     root: Path,
     load_item: CatalogItem,
@@ -5128,6 +5158,7 @@ def prepare_model_run(
     horizon_hours: float,
     lookahead_hours: float,
     nonanticipative_hours: float,
+    random_seed: int,
     solver_time_limit: float,
     solver_mip_gap: float,
 ) -> tuple[Path, Path, Path]:
@@ -5160,6 +5191,7 @@ def prepare_model_run(
         "horizon_hours": horizon_hours,
         "lookahead_hours": lookahead_hours,
         "nonanticipative_hours": nonanticipative_hours,
+        "random_seed": random_seed,
         "solver_time_limit": solver_time_limit,
         "solver_mip_gap": solver_mip_gap,
         "inputs": {
@@ -5230,6 +5262,7 @@ def build_solve_command(
     horizon_hours: float,
     lookahead_hours: float,
     nonanticipative_hours: float,
+    random_seed: int,
     solver_time_limit: float,
     solver_mip_gap: float,
     power_model: str = DEFAULT_POWER_MODEL,
@@ -5255,6 +5288,8 @@ def build_solve_command(
                 str(model.get("nss_bess", "disabled")),
                 "--nonanticipative-hours",
                 str(nonanticipative_hours),
+                "--random-seed",
+                str(random_seed),
                 "--solver-name",
                 solver_name,
                 "--solver-time-limit",
@@ -5284,6 +5319,7 @@ def run_network_script(
     horizon_hours: float,
     lookahead_hours: float,
     nonanticipative_hours: float,
+    random_seed: int,
     solver_time_limit: float,
     solver_mip_gap: float,
 ) -> dict[str, Any]:
@@ -5296,6 +5332,7 @@ def run_network_script(
         horizon_hours,
         lookahead_hours,
         nonanticipative_hours,
+        random_seed,
         solver_time_limit,
         solver_mip_gap,
         power_model=power_model,
@@ -5347,6 +5384,7 @@ def prepare_run_request(payload: dict[str, Any]) -> dict[str, Any]:
     horizon_hours = parse_positive_float(payload.get("horizon_hours", 24), "Reporting horizon hours")
     lookahead_hours = parse_nonnegative_float(payload.get("lookahead_hours", 24), "Lookahead hours")
     nonanticipative_hours = parse_nonnegative_float(payload.get("nonanticipative_hours", 20), "Generation non-anticipativity hours")
+    random_seed = parse_nonnegative_int(payload.get("random_seed", model_config.get("random_seed", 20241028)), "Random seed")
     solver_time_limit = parse_positive_float(payload.get("solver_time_limit", model_config.get("solver_time_limit", 360)), "Solver time limit seconds")
     solver_mip_gap = parse_nonnegative_float(payload.get("solver_mip_gap", model_config.get("solver_mip_gap", 0.005)), "Solver MIP gap")
     if horizon_hours > 8760:
@@ -5355,6 +5393,8 @@ def prepare_run_request(payload: dict[str, Any]) -> dict[str, Any]:
         raise AppError("Lookahead hours must be 8760 or less.")
     if nonanticipative_hours > 8760:
         raise AppError("Generation non-anticipativity hours must be 8760 or less.")
+    if random_seed > 2000000000:
+        raise AppError("Random seed must be 2000000000 or less.")
     if solver_time_limit > 86400:
         raise AppError("Solver time limit must be 86400 seconds or less.")
     if solver_mip_gap > 1:
@@ -5383,6 +5423,7 @@ def prepare_run_request(payload: dict[str, Any]) -> dict[str, Any]:
         horizon_hours=horizon_hours,
         lookahead_hours=lookahead_hours,
         nonanticipative_hours=nonanticipative_hours,
+        random_seed=random_seed,
         solver_time_limit=solver_time_limit,
         solver_mip_gap=solver_mip_gap,
     )
@@ -5398,6 +5439,7 @@ def prepare_run_request(payload: dict[str, Any]) -> dict[str, Any]:
         "horizon_hours": horizon_hours,
         "lookahead_hours": lookahead_hours,
         "nonanticipative_hours": nonanticipative_hours,
+        "random_seed": random_seed,
         "solver_time_limit": solver_time_limit,
         "solver_mip_gap": solver_mip_gap,
         "run_dir": run_dir,
@@ -5417,6 +5459,7 @@ def start_run_job(payload: dict[str, Any]) -> dict[str, Any]:
         prepared["horizon_hours"],
         prepared["lookahead_hours"],
         prepared["nonanticipative_hours"],
+        prepared["random_seed"],
         prepared["solver_time_limit"],
         prepared["solver_mip_gap"],
         power_model=prepared["power_model"],
@@ -5452,6 +5495,7 @@ def start_run_job(payload: dict[str, Any]) -> dict[str, Any]:
         "horizon_hours": prepared["horizon_hours"],
         "lookahead_hours": prepared["lookahead_hours"],
         "nonanticipative_hours": prepared["nonanticipative_hours"],
+        "random_seed": prepared["random_seed"],
         "solver_time_limit": prepared["solver_time_limit"],
         "solver_mip_gap": prepared["solver_mip_gap"],
         "selected_sources": {
@@ -5677,6 +5721,7 @@ def initialize_job_log_file(job: dict[str, Any]) -> None:
         f"horizon_hours={job.get('horizon_hours', '')}",
         f"lookahead_hours={job.get('lookahead_hours', '')}",
         f"nonanticipative_hours={job.get('nonanticipative_hours', '')}",
+        f"random_seed={job.get('random_seed', '')}",
         f"solver_time_limit={job.get('solver_time_limit', '')}",
         f"solver_mip_gap={job.get('solver_mip_gap', '')}",
         f"command={job.get('command', '')}",
@@ -6449,6 +6494,7 @@ def dashboard_data(
             "power_model": run_settings.get("power_model", ""),
             "power_model_script": run_settings.get("power_model_script", ""),
             "nonanticipative_hours": run_settings.get("nonanticipative_hours"),
+            "random_seed": run_settings.get("random_seed"),
             "solver_time_limit": run_settings.get("solver_time_limit"),
             "solver_mip_gap": run_settings.get("solver_mip_gap"),
         },
@@ -7423,6 +7469,7 @@ class CsvSourceEditorHandler(BaseHTTPRequestHandler):
                 "default_horizon_hours": 24,
                 "default_lookahead_hours": 24,
                 "default_nonanticipative_hours": 20,
+                "default_random_seed": POWER_MODELS[DEFAULT_POWER_MODEL].get("random_seed", 20241028),
             }
         )
 
@@ -7600,6 +7647,7 @@ class CsvSourceEditorHandler(BaseHTTPRequestHandler):
             horizon_hours=prepared["horizon_hours"],
             lookahead_hours=prepared["lookahead_hours"],
             nonanticipative_hours=prepared["nonanticipative_hours"],
+            random_seed=prepared["random_seed"],
             solver_time_limit=prepared["solver_time_limit"],
             solver_mip_gap=prepared["solver_mip_gap"],
         )
@@ -7619,6 +7667,7 @@ class CsvSourceEditorHandler(BaseHTTPRequestHandler):
                 "horizon_hours": prepared["horizon_hours"],
                 "lookahead_hours": prepared["lookahead_hours"],
                 "nonanticipative_hours": prepared["nonanticipative_hours"],
+                "random_seed": prepared["random_seed"],
                 "solver_time_limit": prepared["solver_time_limit"],
                 "solver_mip_gap": prepared["solver_mip_gap"],
             }
