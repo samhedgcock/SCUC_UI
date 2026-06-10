@@ -1,0 +1,14 @@
+__pycache__/
+*.py[cod]
+
+# Local solver/app runtime artifacts
+model_runs/
+*.log
+gurobi.lic
+*.lic
+
+# Local editor and OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
